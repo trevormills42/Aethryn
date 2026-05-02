@@ -6,13 +6,13 @@ import { COLORS } from '../lib/gameData';
 import { useGame } from '../lib/gameStore';
 
 export default function GameLayout() {
-  const { character } = useGame();
+  const { character, hydrated } = useGame();
 
   useEffect(() => {
-    if (!character) router.replace('/');
-  }, [character]);
+    if (hydrated && !character) router.replace('/');
+  }, [character, hydrated]);
 
-  if (!character) return null;
+  if (!hydrated || !character) return null;
 
   return (
     <Tabs
