@@ -86,6 +86,94 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     (async () => {
       try {
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ATTRIBUTES, RACES, SKILLS, QUESTS, ITEMS, Race, Quest } from './gameData';
+
+// Bump this if you ever change the Character shape in a breaking way —
+// old saves with a different key are simply ignored (no migration logic yet).
+const STORAGE_KEY = 'aetheryn:character:v1';
+
+type Character = {
+  name: string;
+  race: Race;
+  attributes: Record<string, number>;
+  level: number;
+  xp: number;
+  hp: number;
+  hpMax: number;
+  mp: number;
+  mpMax: number;
+  unlockedSkills: string[];
+  skillUses: Record<string, number>;
+  inventory: string[];
+  equipped: { weapon?: string; armor?: string; artifact?: string };
+  gold: number;
+  quests: Record<string, 'available' | 'active' | 'completed'>;
+  questChoices: Record<string, number>;
+  visitedRegions: string[];
+};
+
+export type PendingEncounter = {
+  regionId: string;
+  enemyIds: string[];
+};
+
+type GameContextType = {
+  character: Character | null;
+  hydrated: boolean;
+  createCharacter: (name: string, race: Race) => void;
+  resetCharacter: () => void;
+  trainSkill: (skillId: string, uses: number) => void;
+  toggleQuest: (questId: string) => void;
+  makeChoice: (questId: string, choiceIdx: number) => void;
+  visitRegion: (regionId: string) => void;
+  equipItem: (itemId: string, slot: 'weapon' | 'armor' | 'artifact') => void;
+  usePotion: (itemId: string) => void;
+  addItem: (itemId: string) => void;
+  gainXP: (amount: number) => void;
+  setHpMp: (hp: number, mp: number) => void;
+  addGold: (amount: number) => void;
+  pendingEncounter: PendingEncounter | null;
+  startEncounter: (encounter: PendingEncounter) => void;
+  clearEncounter: () => void;
+};
+
+
+const GameContext = createContext<GameContextType | null>(null);
+
+const buildAttrs = (race: Race) => {
+  const attrs: Record<string, number> = {};
+  ATTRIBUTES.forEach(a => { attrs[a.name] = a.base; });
+  race.bonuses.forEach(b => { attrs[b.attr] = (attrs[b.attr] || 10) + b.val; });
+  return attrs;
+};
+
+export function GameProvider({ children }: { children: ReactNode }) {
+  const [character, setCharacter] = useState<Character | null>(null);
+  const [pendingEncounter, setPendingEncounter] = useState<PendingEncounter | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load saved character on first mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) setCharacter(JSON.parse(raw) as Character);
+      } catch (e) {
+        console.warn('[gameStore] Failed to hydrate:', e);
+      } finally {
+        setHydrated(true);
+      }
+    })();
+  }, []);
+
+  // Persist character on every change (after initial hydration so we never
+  // overwrite a real save with the empty initial state).
+  useEffect(() => {
+    if (!hydrated) return;
+    (async () => {
+      try {
         if (character) {
           await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(character));
         } else {
@@ -224,15 +312,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
   const clearEncounter = useCallback(() => setPendingEncounter(null), []);
 
-  // Don't render the app until we've checked storage. Otherwise a returning
-  // player would briefly see "Begin Your Saga" before flipping to "Continue".
-  if (!hydrated) {
-    return <View style={{ flex: 1, backgroundColor: '#050817' }} />;
-  }
-
   return (
     <GameContext.Provider value={{
-      character, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
+      character, hydrated, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
       equipItem, usePotion, addItem, gainXP, setHpMp, addGold,
       pendingEncounter, startEncounter, clearEncounter,
     }}>
