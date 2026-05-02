@@ -198,8 +198,8 @@ const styles = StyleSheet.create({
   },
   silhouette: { width: 220, height: 320, borderRadius: 12, opacity: 0.92 },
   heroText: { padding: 28, paddingBottom: 50 },
-  kicker: { color: COLORS.gold, fontSize: 10, letterSpacing: 4, textAlign: 'center', marginBottom: 12, opacity: 0.85 },
-  title: { color: COLORS.parchment, fontSize: 56, fontWeight: '300', textAlign: 'center', letterSpacing: 8, marginBottom: 14, textShadowColor: COLORS.arcane, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 20 },
+  kicker: { color: COLORS.gold, fontSize: 10, letterSpacing: 2.5, textAlign: 'center', marginBottom: 12, opacity: 0.85 },
+  title: { color: COLORS.parchment, fontSize: 48, fontWeight: '300', textAlign: 'center', letterSpacing: 6, marginBottom: 14, textShadowColor: COLORS.arcane, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 20 },
   subtitle: { color: COLORS.silver, fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 28, paddingHorizontal: 12, fontStyle: 'italic' },
   primaryBtn: {
     backgroundColor: COLORS.gold,
