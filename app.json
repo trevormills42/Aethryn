@@ -12,13 +12,13 @@
       "supportsTablet": true
     },
     "android": {
-  "package": "com.trevormills.aethryn",
-  "adaptiveIcon": {
-    "foregroundImage": "./assets/images/adaptive-icon.png",
-    "backgroundColor": "#ffffff"
-  },
-  "edgeToEdgeEnabled": true
-},
+      "package": "com.trevormills.aethryn",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true
+    },
     "web": {
       "bundler": "metro",
       "output": "static",
@@ -41,6 +41,13 @@
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "59f37b37-55bd-48c1-ab8d-07c127b08a11"
+      }
+    },
+    "owner": "trevormills42"
   }
 }
