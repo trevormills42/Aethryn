@@ -39,7 +39,7 @@ type Unit = {
 type Mode = 'idle' | 'move' | 'target';
 
 export default function CombatScreen() {
-  const { character, hydrated, pendingEncounter, clearEncounter, setHpMp, addGold, addItem, gainXP, usePotion } = useGame();
+  const { character, hydrated, pendingEncounter, clearEncounter, setHpMp, addGold, addItem, gainXP, usePotion, trainSkill } = useGame();
 
   useEffect(() => {
     if (hydrated && !character) router.replace('/');
@@ -343,6 +343,9 @@ export default function CombatScreen() {
       if ((ab.mpCost || 0) > player.mp) { addLog('Not enough aether.'); return; }
       setUnits(prev => prev.map(u => u.uid === player.uid ? { ...u, mp: u.mp - (ab.mpCost || 0), hp: u.hp - (ab.hpCost || 0) } : u));
       resolveAbility(player, ab, x, y);
+      // Use-based progression: each skill-gated ability trains its underlying skill.
+      // trainSkill also auto-unlocks any prerequisite-chained skill once threshold is met.
+      if (ab.requiresSkill) trainSkill(ab.requiresSkill, 1);
       consumeAP(ab.apCost);
       setMode('idle');
       setSelectedAbility(null);
