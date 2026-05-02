@@ -1,5 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ATTRIBUTES, RACES, SKILLS, QUESTS, ITEMS, Race, Quest } from './gameData';
+
+// Bump this if you ever change the Character shape in a breaking way —
+// old saves with a different key are simply ignored (no migration logic yet).
+const STORAGE_KEY = 'aetheryn:character:v1';
 
 type Character = {
   name: string;
@@ -58,6 +64,38 @@ const buildAttrs = (race: Race) => {
 export function GameProvider({ children }: { children: ReactNode }) {
   const [character, setCharacter] = useState<Character | null>(null);
   const [pendingEncounter, setPendingEncounter] = useState<PendingEncounter | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load saved character on first mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) setCharacter(JSON.parse(raw) as Character);
+      } catch (e) {
+        console.warn('[gameStore] Failed to hydrate:', e);
+      } finally {
+        setHydrated(true);
+      }
+    })();
+  }, []);
+
+  // Persist character on every change (after initial hydration so we never
+  // overwrite a real save with the empty initial state).
+  useEffect(() => {
+    if (!hydrated) return;
+    (async () => {
+      try {
+        if (character) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(character));
+        } else {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+        }
+      } catch (e) {
+        console.warn('[gameStore] Failed to save:', e);
+      }
+    })();
+  }, [character, hydrated]);
 
   const createCharacter = useCallback((name: string, race: Race) => {
     const attrs = buildAttrs(race);
@@ -185,6 +223,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
   const clearEncounter = useCallback(() => setPendingEncounter(null), []);
+
+  // Don't render the app until we've checked storage. Otherwise a returning
+  // player would briefly see "Begin Your Saga" before flipping to "Continue".
+  if (!hydrated) {
+    return <View style={{ flex: 1, backgroundColor: '#050817' }} />;
+  }
 
   return (
     <GameContext.Provider value={{
