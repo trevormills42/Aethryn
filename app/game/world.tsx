@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { COLORS, REGIONS, QUESTS } from '../lib/gameData';
@@ -13,8 +13,15 @@ const MAP_W = width - 36;
 const MAP_H = MAP_W * 1.1;
 
 export default function WorldScreen() {
-  const { character, visitRegion, gainXP, startEncounter } = useGame();
+  const { character, visitRegion, startEncounter, wander } = useGame();
   const [openRegion, setOpenRegion] = useState<string | null>(null);
+  // Outcome modal: shows the lyrical text and any rewards from the last wander.
+  // null = no modal showing. 'too_weary' = HP-too-low message.
+  const [wanderModal, setWanderModal] = useState<
+    | null
+    | { kind: 'too_weary' }
+    | { kind: 'outcome'; text: string; effects: any }
+  >(null);
 
 
   if (!character) return null;
@@ -27,17 +34,24 @@ export default function WorldScreen() {
     setOpenRegion(id);
   };
 
-  const onEncounter = () => {
-    const outcomes = [
-      { txt: 'A starving wolf bars your path. You spare it. It leaves you a bone.', xp: 20 },
-      { txt: 'You find a shrine half-buried. The carving is fresh, though the stone is old.', xp: 15 },
-      { txt: 'A merchant trades in stories. You give her one. She gives you a coin that hums.', xp: 25 },
-      { txt: 'A figure watches from the trees and does not look away. You walk on.', xp: 10 },
-      { txt: 'The wind speaks a name you almost remember.', xp: 30 },
-    ];
-    const o = outcomes[Math.floor(Math.random() * outcomes.length)];
-    gainXP(o.xp);
-    Alert.alert('Encounter', `${o.txt}\n\n+${o.xp} XP`);
+  const onWander = (regionId: string) => {
+    const result = wander(regionId);
+    if (result.kind === 'too_weary') {
+      setWanderModal({ kind: 'too_weary' });
+      return;
+    }
+    if (result.combatTriggered) {
+      // Wander triggered combat — close the region modal and route to combat.
+      // Skip showing the outcome modal since combat is the consequence.
+      setOpenRegion(null);
+      router.push('/combat');
+      return;
+    }
+    setWanderModal({
+      kind: 'outcome',
+      text: result.outcome.text,
+      effects: result.outcome.effects,
+    });
   };
 
   const onHunt = (regionId: string) => {
@@ -162,16 +176,73 @@ export default function WorldScreen() {
 
               <View style={{ height: 8 }} />
 
-              <TouchableOpacity onPress={onEncounter} style={[styles.encounterBtn, { backgroundColor: 'rgba(45,27,78,0.6)', borderWidth: 1, borderColor: COLORS.gold }]}>
+              <TouchableOpacity onPress={() => onWander(region.id)} style={[styles.encounterBtn, { backgroundColor: 'rgba(45,27,78,0.6)', borderWidth: 1, borderColor: COLORS.gold }]}>
                 <Ionicons name="footsteps" size={18} color={COLORS.gold} />
-                <Text style={[styles.encounterText, { color: COLORS.gold }]}>Wander the region</Text>
+                <Text style={[styles.encounterText, { color: COLORS.gold }]}>Wander the region (−2 HP)</Text>
               </TouchableOpacity>
 
-              <Text style={styles.modalNote}>Hunting yields combat, XP, gold, and rare drops. Wandering yields lore.</Text>
+              <Text style={styles.modalNote}>Hunting yields combat. Wandering yields lore — and sometimes worse. Regions tire of you; rest or move on to refresh them.</Text>
             </View>
           </View>
         )}
       </Modal>
+
+      {/* Wander outcome modal: works on web (Alert.alert callbacks don't). */}
+      <Modal visible={!!wanderModal} transparent animationType="fade" onRequestClose={() => setWanderModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { maxWidth: 360 }]}>
+            {wanderModal?.kind === 'too_weary' ? (
+              <>
+                <Text style={styles.modalTitle}>Too Weary</Text>
+                <Text style={[styles.modalDesc, { marginTop: 10, lineHeight: 22 }]}>
+                  You are too worn to wander further. Rest first, or take to the roads with sterner business.
+                </Text>
+              </>
+            ) : wanderModal?.kind === 'outcome' ? (
+              <>
+                <Text style={[styles.modalRegion, { marginBottom: 12 }]}>✦ THE ROAD ✦</Text>
+                <Text style={[styles.modalDesc, { lineHeight: 22, fontStyle: 'italic', color: COLORS.parchment }]}>
+                  {wanderModal.text}
+                </Text>
+                {renderEffectsSummary(wanderModal.effects)}
+              </>
+            ) : null}
+            <View style={{ height: 16 }} />
+            <TouchableOpacity onPress={() => setWanderModal(null)} style={[styles.encounterBtn, { backgroundColor: 'rgba(45,27,78,0.6)', borderWidth: 1, borderColor: COLORS.gold }]}>
+              <Text style={[styles.encounterText, { color: COLORS.gold }]}>Walk on</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+// Translate effect deltas to human-readable lines under the outcome text.
+// Skips zero/empty values; small flourish for items and journal entries.
+function renderEffectsSummary(effects: any) {
+  if (!effects) return null;
+  const lines: string[] = [];
+  if (effects.xp) lines.push(`+${effects.xp} XP`);
+  if (effects.hp && effects.hp > 0) lines.push(`+${effects.hp} HP`);
+  if (effects.hp && effects.hp < 0) lines.push(`${effects.hp} HP`);
+  // Note: the 2 HP wander toll is paid silently — only outcome-specific HP shows.
+  if (effects.mp && effects.mp > 0) lines.push(`+${effects.mp} MP`);
+  if (effects.mp && effects.mp < 0) lines.push(`${effects.mp} MP`);
+  if (effects.gold && effects.gold > 0) lines.push(`+${effects.gold} gold`);
+  if (effects.gold && effects.gold < 0) lines.push(`${effects.gold} gold`);
+  if (effects.itemId) lines.push('You take what was given.');
+  if (effects.itemRemove) lines.push('Something was lost.');
+  if (effects.trainSkill) lines.push('Your hands remember.');
+  if (effects.journal) lines.push('A line for the journal.');
+  if (lines.length === 0) return null;
+  return (
+    <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(212,175,55,0.2)' }}>
+      {lines.map((l, i) => (
+        <Text key={i} style={{ color: COLORS.gold, fontSize: 12, letterSpacing: 1, marginBottom: 3 }}>
+          {l}
+        </Text>
+      ))}
     </View>
   );
 }
