@@ -41,24 +41,14 @@ export default function WorldScreen() {
   };
 
   const onHunt = (regionId: string) => {
+    // No confirmation dialog — Alert.alert callbacks don't fire reliably on web,
+    // and tapping "Hunt" is itself the affirmative action. If the player wants to
+    // bail, they can flee from the combat screen.
     const tables = ENCOUNTERS[regionId] || [['bandit']];
     const enemies = tables[Math.floor(Math.random() * tables.length)];
-    const names = enemies.map(eid => ENEMIES[eid]?.name || eid).join(', ');
-    Alert.alert(
-      'You are not alone.',
-      `${names} bar your path.\n\nReady your blade?`,
-      [
-        { text: 'Withdraw', style: 'cancel' },
-        {
-          text: 'Engage',
-          onPress: () => {
-            startEncounter({ regionId, enemyIds: enemies });
-            setOpenRegion(null);
-            router.push('/combat');
-          },
-        },
-      ],
-    );
+    startEncounter({ regionId, enemyIds: enemies });
+    setOpenRegion(null);
+    router.push('/combat');
   };
 
   return (
