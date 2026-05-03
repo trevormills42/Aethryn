@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ATTRIBUTES, RACES, SKILLS, QUESTS, ITEMS, Race, Quest } from './gameData';
+import { pickWanderOutcome, WanderOutcome } from './wanderData';
 
 // Bump this if you ever change the Character shape in a breaking way —
 // old saves with a different key are simply ignored (no migration logic yet).
@@ -24,11 +25,15 @@ type Character = {
   quests: Record<string, 'available' | 'active' | 'completed'>;
   questChoices: Record<string, number>;
   visitedRegions: string[];
+  wanderCounts: Record<string, number>;
+  lastWanderedRegion: string | null;
+  journalEntries: string[];
 };
 
 export type PendingEncounter = {
   regionId: string;
   enemyIds: string[];
+  canFlee?: boolean;
 };
 
 type GameContextType = {
@@ -46,10 +51,17 @@ type GameContextType = {
   gainXP: (amount: number) => void;
   setHpMp: (hp: number, mp: number) => void;
   addGold: (amount: number) => void;
+  wander: (regionId: string) => WanderResult;
+  addJournalEntry: (text: string) => void;
   pendingEncounter: PendingEncounter | null;
   startEncounter: (encounter: PendingEncounter) => void;
   clearEncounter: () => void;
 };
+
+// What the wander() action returns to the UI so it can display the outcome.
+export type WanderResult =
+  | { kind: 'too_weary' }
+  | { kind: 'outcome'; outcome: WanderOutcome; combatTriggered: boolean };
 
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -119,6 +131,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       quests: { q1: 'active' },
       questChoices: {},
       visitedRegions: ['r6'],
+      wanderCounts: {},
+      lastWanderedRegion: null,
+      journalEntries: [],
     });
   }, []);
 
@@ -151,8 +166,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
       else next = 'active';
       const newQuests = { ...prev.quests, [questId]: next };
       let xp = prev.xp;
+      // Quest completion = passing time. Clear region exhaustion.
+      // (Toggling backward to 'available' or 'active' is cosmetic, no time pass.)
+      const wanderCounts = next === 'completed' ? {} : prev.wanderCounts;
+      const lastWanderedRegion = next === 'completed' ? null : prev.lastWanderedRegion;
       if (next === 'completed') xp += 100;
-      return { ...prev, quests: newQuests, xp };
+      return { ...prev, quests: newQuests, xp, wanderCounts, lastWanderedRegion };
     });
   }, []);
 
@@ -214,7 +233,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setHpMp = useCallback((hp: number, mp: number) => {
-    setCharacter(prev => prev ? { ...prev, hp: Math.max(0, Math.min(prev.hpMax, hp)), mp: Math.max(0, Math.min(prev.mpMax, mp)) } : prev);
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const newHp = Math.max(0, Math.min(prev.hpMax, hp));
+      const newMp = Math.max(0, Math.min(prev.mpMax, mp));
+      // Treat a full-vitals restore (i.e. Rest) as passing time.
+      const isRest = newHp === prev.hpMax && newMp === prev.mpMax;
+      return {
+        ...prev,
+        hp: newHp,
+        mp: newMp,
+        wanderCounts: isRest ? {} : prev.wanderCounts,
+        lastWanderedRegion: isRest ? null : prev.lastWanderedRegion,
+      };
+    });
   }, []);
 
   const addGold = useCallback((amount: number) => {
@@ -224,10 +256,135 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
   const clearEncounter = useCallback(() => setPendingEncounter(null), []);
 
+  const addJournalEntry = useCallback((text: string) => {
+    setCharacter(prev => prev ? { ...prev, journalEntries: [...(prev.journalEntries ?? []), text] } : prev);
+  }, []);
+
+  // The wander action. Returns a WanderResult so the UI can display the outcome
+  // (or a "too weary" message). All side effects happen inside this single setter
+  // so the persisted save is consistent — no half-applied wanders if something
+  // throws downstream.
+  const wander = useCallback((regionId: string): WanderResult => {
+    const c = character;
+    if (!c) return { kind: 'outcome', outcome: { id: 'noop', scope: 'exhausted', weight: 1, text: '', effects: {} }, combatTriggered: false };
+
+    // 2 HP toll — but if you're already too weary, refuse the wander entirely.
+    // We require HP > 2 (not >= 2) so the toll never drops you below 1.
+    if (c.hp <= 2) return { kind: 'too_weary' };
+
+    // Defensive defaults for old saves that pre-date these fields.
+    const wanderCounts = c.wanderCounts ?? {};
+    const lastWanderedRegion = c.lastWanderedRegion ?? null;
+    const journalEntries = c.journalEntries ?? [];
+
+    // Wandering a different region than last time = passing time. All region
+    // exhaustion clears.
+    const passedTime = lastWanderedRegion !== null && lastWanderedRegion !== regionId;
+    const effectiveCounts = passedTime ? {} : wanderCounts;
+    const currentCount = effectiveCounts[regionId] ?? 0;
+
+    const outcome = pickWanderOutcome(regionId, c, currentCount);
+    const eff = outcome.effects;
+
+    // Apply effects in a single setCharacter so persistence saves once with everything.
+    let combatTriggered = false;
+    setCharacter(prev => {
+      if (!prev) return prev;
+
+      // Start from the post-time-pass counts.
+      const counts = passedTime ? {} : { ...(prev.wanderCounts ?? {}) };
+      counts[regionId] = (counts[regionId] ?? 0) + 1;
+
+      // Vitals: 2 HP toll first, then any outcome HP delta. Clamp at end.
+      let hp = prev.hp - 2 + (eff.hp ?? 0);
+      hp = Math.max(0, Math.min(prev.hpMax, hp));
+
+      let mp = prev.mp + (eff.mp ?? 0);
+      mp = Math.max(0, Math.min(prev.mpMax, mp));
+
+      // Gold: clamp >= 0 so a theft on a broke character doesn't go negative.
+      const gold = Math.max(0, prev.gold + (eff.gold ?? 0));
+
+      // Inventory mutations.
+      let inventory = prev.inventory;
+      if (eff.itemRemove) {
+        const idx = inventory.indexOf(eff.itemRemove);
+        if (idx !== -1) {
+          inventory = [...inventory];
+          inventory.splice(idx, 1);
+        }
+      }
+      if (eff.itemId) inventory = [...inventory, eff.itemId];
+
+      // Journal append (defensive against undefined for old saves).
+      const newJournal = eff.journal
+        ? [...(prev.journalEntries ?? []), eff.journal]
+        : (prev.journalEntries ?? journalEntries);
+
+      // XP and level-up logic, mirrored from gainXP. Done inline to keep this
+      // a single state transition rather than chaining setters.
+      let xp = prev.xp + (eff.xp ?? 0);
+      let level = prev.level;
+      let hpMax = prev.hpMax;
+      let mpMax = prev.mpMax;
+      let hpAfterLevel = hp;
+      let mpAfterLevel = mp;
+      while (xp >= level * 100) {
+        xp -= level * 100;
+        level += 1;
+        hpMax += 8;
+        mpMax += 5;
+        hpAfterLevel = hpMax;
+        mpAfterLevel = mpMax;
+      }
+
+      // Skill training, if any.
+      let skillUses = prev.skillUses;
+      let unlockedSkills = prev.unlockedSkills;
+      if (eff.trainSkill) {
+        const { skillId, uses } = eff.trainSkill;
+        skillUses = { ...skillUses, [skillId]: (skillUses[skillId] ?? 0) + uses };
+        const unlocked = [...unlockedSkills];
+        SKILLS.forEach(s => {
+          if (!unlocked.includes(s.id) && s.prereq && unlocked.includes(s.prereq)) {
+            if ((skillUses[s.prereq] ?? 0) >= s.unlockUses) unlocked.push(s.id);
+          }
+        });
+        unlockedSkills = unlocked;
+      }
+
+      return {
+        ...prev,
+        hp: hpAfterLevel, mp: mpAfterLevel, hpMax, mpMax,
+        xp, level,
+        gold,
+        inventory,
+        skillUses, unlockedSkills,
+        wanderCounts: counts,
+        lastWanderedRegion: regionId,
+        journalEntries: newJournal,
+      };
+    });
+
+    // Combat is set as a side effect (not part of character state).
+    if (eff.combat) {
+      // Roll enemy count: 1-3 weighted toward 1. ~60% one, ~30% two, ~10% three.
+      const r = Math.random();
+      const count = r < 0.6 ? 1 : r < 0.9 ? 2 : 3;
+      const enemyId = eff.combat.enemyIds[0] ?? 'bandit';
+      const enemyIds = Array.from({ length: count }, () => enemyId);
+      setPendingEncounter({ regionId, enemyIds, canFlee: eff.combat.canFlee });
+      combatTriggered = true;
+    }
+
+    return { kind: 'outcome', outcome, combatTriggered };
+  }, [character]);
+
   return (
     <GameContext.Provider value={{
       character, hydrated, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
       equipItem, usePotion, addItem, gainXP, setHpMp, addGold,
+      wander, addJournalEntry,
       pendingEncounter, startEncounter, clearEncounter,
     }}>
       {children}
