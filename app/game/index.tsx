@@ -9,17 +9,18 @@ import RuneDivider from '../components/RuneDivider';
 import StatRing from '../components/StatRing';
 
 export default function CharacterSheet() {
-  const { character, resetCharacter, gainXP } = useGame();
+  const { character, resetCharacter, gainXP, setHpMp } = useGame();
   if (!character) return null;
 
   const xpForNext = character.level * 100;
   const xpPct = character.xp / xpForNext;
 
   const onRest = () => {
-    Alert.alert('Rest by the fire?', 'You will recover fully and gain a small reflection.', [
-      { text: 'Stay watchful', style: 'cancel' },
-      { text: 'Rest', onPress: () => gainXP(15) },
-    ]);
+    // No confirmation dialog (Alert.alert callbacks don't fire reliably on web).
+    // Also: the original code only granted XP. The button text promises a full
+    // recovery, so now Rest actually restores HP and MP to max as well.
+    setHpMp(character.hpMax, character.mpMax);
+    gainXP(15);
   };
 
   const onLeave = () => {
