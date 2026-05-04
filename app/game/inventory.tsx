@@ -10,7 +10,7 @@ const FILTERS = ['all', 'weapon', 'armor', 'potion', 'artifact', 'material'] as 
 type Filter = typeof FILTERS[number];
 
 export default function InventoryScreen() {
-  const { character, equipItem, usePotion, addItem } = useGame();
+  const { character, equipItem, usePotion } = useGame();
   const [filter, setFilter] = useState<Filter>('all');
   const [openItem, setOpenItem] = useState<Item | null>(null);
 
@@ -49,15 +49,6 @@ export default function InventoryScreen() {
     } else {
       Alert.alert('Material', 'Best saved for crafting.');
     }
-  };
-
-  // Allow looting unowned items as discovery
-  const lootRandom = () => {
-    const undiscovered = ITEMS.filter(i => !ownedIds.includes(i.id));
-    if (undiscovered.length === 0) return Alert.alert('Pack Full', 'You possess every relic of the realm.');
-    const pick = undiscovered[Math.floor(Math.random() * undiscovered.length)];
-    addItem(pick.id);
-    Alert.alert('You found:', `${pick.name}\n\n${pick.lore}`);
   };
 
   return (
@@ -109,13 +100,6 @@ export default function InventoryScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
-
-        <View style={{ paddingHorizontal: 18, marginTop: 16 }}>
-          <TouchableOpacity onPress={lootRandom} style={styles.lootBtn}>
-            <Ionicons name="search" size={16} color={COLORS.gold} />
-            <Text style={styles.lootText}>Search for hidden loot</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -182,8 +166,6 @@ const styles = StyleSheet.create({
   itemStat: { fontSize: 10, fontWeight: '600', letterSpacing: 1 },
   qty: { position: 'absolute', top: 8, right: 8, backgroundColor: COLORS.bgDeep, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: COLORS.gold },
   qtyText: { color: COLORS.gold, fontSize: 10, fontWeight: '700' },
-  lootBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)', backgroundColor: 'rgba(45,27,78,0.4)' },
-  lootText: { color: COLORS.gold, fontSize: 13, letterSpacing: 1.5, fontWeight: '600' },
   modalBg: { flex: 1, backgroundColor: 'rgba(5,8,23,0.85)', justifyContent: 'center', padding: 18 },
   modalCard: { backgroundColor: COLORS.ink, borderRadius: 18, borderWidth: 2, padding: 22 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
