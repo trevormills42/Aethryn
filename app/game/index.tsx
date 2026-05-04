@@ -9,16 +9,14 @@ import RuneDivider from '../components/RuneDivider';
 import StatRing from '../components/StatRing';
 
 export default function CharacterSheet() {
-  const { character, resetCharacter, gainXP, setHpMp } = useGame();
+  const { character, resetCharacter, gainXP, setHpMp, spendAttributePoint } = useGame();
   if (!character) return null;
 
   const xpForNext = character.level * 100;
   const xpPct = character.xp / xpForNext;
+  const unspent = character.unspentAttributePoints ?? 0;
 
   const onRest = () => {
-    // No confirmation dialog (Alert.alert callbacks don't fire reliably on web).
-    // Also: the original code only granted XP. The button text promises a full
-    // recovery, so now Rest actually restores HP and MP to max as well.
     setHpMp(character.hpMax, character.mpMax);
     gainXP(15);
   };
@@ -89,16 +87,47 @@ export default function CharacterSheet() {
 
         <RuneDivider label="Attributes" />
 
-        {/* ATTRIBUTES */}
+        {/* Attribute-points-available banner. Only renders when there are unspent points. */}
+        {unspent > 0 && (
+          <View style={{ paddingHorizontal: 18, marginBottom: 12 }}>
+            <GlassCard glow={COLORS.gold}>
+              <View style={styles.attrPointsRow}>
+                <Ionicons name="add-circle" size={20} color={COLORS.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attrPointsTitle}>
+                    {unspent} {unspent === 1 ? 'attribute point' : 'attribute points'} available
+                  </Text>
+                  <Text style={styles.attrPointsHint}>
+                    Tap an attribute to invest. Each point raises that attribute by 1, and adjusts your pools accordingly.
+                  </Text>
+                </View>
+              </View>
+            </GlassCard>
+          </View>
+        )}
+
+        {/* ATTRIBUTES — same layout, but each card becomes a tappable +1 button when points are available. */}
         <View style={styles.attrGrid}>
           {ATTRIBUTES.map(a => {
-            const val = character.attributes[a.name] || a.base;
+            const val = character.attributes[a.name] ?? a.base;
+            const canSpend = unspent > 0;
+            const Wrapper: any = canSpend ? TouchableOpacity : View;
             return (
-              <View key={a.name} style={styles.attrCard}>
-                <StatRing value={val} max={20} label={a.short} color={COLORS.gold} size={64} />
+              <Wrapper
+                key={a.name}
+                onPress={canSpend ? () => spendAttributePoint(a.name) : undefined}
+                activeOpacity={canSpend ? 0.7 : 1}
+                style={[styles.attrCard, canSpend && styles.attrCardSpendable]}
+              >
+                <StatRing value={val} max={20} label={a.short} color={canSpend ? COLORS.gold : COLORS.gold} size={64} />
                 <Text style={styles.attrName}>{a.name}</Text>
                 <Text style={styles.attrDesc} numberOfLines={2}>{a.desc}</Text>
-              </View>
+                {canSpend && (
+                  <View style={styles.attrPlusBadge}>
+                    <Ionicons name="add" size={14} color={COLORS.bgDeep} />
+                  </View>
+                )}
+              </Wrapper>
             );
           })}
         </View>
@@ -159,10 +188,15 @@ const styles = StyleSheet.create({
   vitalMax: { color: COLORS.silver, fontSize: 13, opacity: 0.6 },
   miniBar: { height: 3, backgroundColor: 'rgba(45,27,78,0.6)', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
   miniFill: { height: '100%' },
+  attrPointsRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  attrPointsTitle: { color: COLORS.gold, fontSize: 13, fontWeight: '700', letterSpacing: 1, marginBottom: 2 },
+  attrPointsHint: { color: COLORS.silver, fontSize: 11, opacity: 0.85, lineHeight: 15 },
   attrGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 18, gap: 12 },
   attrCard: { width: '47%', backgroundColor: 'rgba(45,27,78,0.3)', borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)', marginBottom: 6 },
+  attrCardSpendable: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,175,55,0.08)' },
   attrName: { color: COLORS.gold, fontSize: 12, fontWeight: '600', letterSpacing: 1.5, marginTop: 8 },
   attrDesc: { color: COLORS.silver, fontSize: 10, textAlign: 'center', marginTop: 4, opacity: 0.7, lineHeight: 14 },
+  attrPlusBadge: { position: 'absolute', top: 8, right: 8, width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
   achRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   achIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' },
   achName: { color: COLORS.parchment, fontSize: 14, fontWeight: '500', marginBottom: 2 },
