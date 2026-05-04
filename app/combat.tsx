@@ -482,6 +482,19 @@ export default function CombatScreen() {
 
   const onLeave = () => { clearEncounter(); router.replace('/game/world'); };
 
+  // For wander-triggered encounters (canFlee), Flee is a real action: 80% chance
+  // of clean exit. On the 20% failure, the player's turn ends (enemies attack)
+  // and a small log entry shows the slip-up.
+  const canFlee = pendingEncounter?.canFlee === true;
+  const tryFlee = useCallback(() => {
+    if (Math.random() < 0.8) {
+      onLeave();
+    } else {
+      addLog('You break for the trees and fail to find them.');
+      endTurn();
+    }
+  }, [endTurn]);
+
   if (!hydrated || !character) return null;
 
   return (
@@ -678,9 +691,9 @@ export default function CombatScreen() {
           <ActionBtn
             icon="exit-outline"
             label="Flee"
-            sub="lose battle"
+            sub={canFlee ? '80% clean' : 'lose battle'}
             disabled={result !== 'ongoing'}
-            onPress={onLeave}
+            onPress={canFlee ? tryFlee : onLeave}
             color={COLORS.blood}
           />
         </ScrollView>
