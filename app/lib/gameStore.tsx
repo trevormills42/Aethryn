@@ -29,6 +29,11 @@ type Character = {
   lastWanderedRegion: string | null;
   journalEntries: string[];
   unspentAttributePoints: number;
+  // Rested-bonus pool: XP credited at this counter is multiplied by 1.5 when
+  // gainXP runs. Granted by the Rest action (which also costs 1 ration). Pool
+  // size is calculated from "remaining XP to next level" so resting near a
+  // level-up gives diminishing returns and prevents stacking exploits.
+  restedXP: number;
 };
 
 export type PendingEncounter = {
@@ -53,6 +58,7 @@ type GameContextType = {
   setHpMp: (hp: number, mp: number) => void;
   addGold: (amount: number) => void;
   spendAttributePoint: (attrName: string) => void;
+  rest: () => RestResult;
   wander: (regionId: string) => WanderResult;
   addJournalEntry: (text: string) => void;
   pendingEncounter: PendingEncounter | null;
@@ -64,6 +70,13 @@ type GameContextType = {
 export type WanderResult =
   | { kind: 'too_weary' }
   | { kind: 'outcome'; outcome: WanderOutcome; combatTriggered: boolean };
+
+// What the rest() action returns to the UI. 'no_rations' lets the UI show a
+// proper modal instead of doing nothing silently. 'rested' carries the granted
+// pool size so we can render confirmation feedback.
+export type RestResult =
+  | { kind: 'no_rations' }
+  | { kind: 'rested'; pool: number };
 
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -150,7 +163,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       mpMax,
       unlockedSkills: SKILLS.filter(s => s.tier === 1).map(s => s.id),
       skillUses: {},
-      inventory: ['i1', 'i6', 'i11', 'i11', 'i13'],
+      inventory: ['i1', 'i6', 'i11', 'i11', 'i13', 'i26', 'i26', 'i26', 'i26', 'i26'],
       equipped: { weapon: 'i1', armor: 'i6' },
       gold: 50,
       quests: { q1: 'active' },
@@ -160,6 +173,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       lastWanderedRegion: null,
       journalEntries: [],
       unspentAttributePoints: 0,
+      restedXP: 0,
     });
   }, []);
 
@@ -240,7 +254,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const gainXP = useCallback((amount: number) => {
     setCharacter(prev => {
       if (!prev) return prev;
-      let xp = prev.xp + amount;
+      // Rested-pool draining: any portion of the incoming amount that fits
+      // within the current rested pool counts as 1.5x. Once the pool is dry,
+      // the rest is at 1x. Pool is reduced by the *raw* amount drained, not
+      // the multiplied amount.
+      const restedAvail = prev.restedXP ?? 0;
+      const restedDraw = Math.min(amount, restedAvail);
+      const normalDraw = amount - restedDraw;
+      const effective = Math.floor(restedDraw * 1.5) + normalDraw;
+      const newRested = restedAvail - restedDraw;
+
+      let xp = prev.xp + effective;
       let level = prev.level;
       let unspent = prev.unspentAttributePoints ?? 0;
       let levelsGained = 0;
@@ -248,14 +272,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         xp -= level * 100;
         level += 1;
         levelsGained += 1;
-        unspent += 1; // 1 attribute point per level
+        unspent += 1;
       }
-      // Recompute pools from current attributes + new level. Heal to full on
-      // level-up so the new ceiling is felt.
       const { hpMax, mpMax } = calcMaxVitals(prev.attributes, level);
       const hp = levelsGained > 0 ? hpMax : Math.min(prev.hp, hpMax);
       const mp = levelsGained > 0 ? mpMax : Math.min(prev.mp, mpMax);
-      return { ...prev, xp, level, hpMax, mpMax, hp, mp, unspentAttributePoints: unspent };
+      return { ...prev, xp, level, hpMax, mpMax, hp, mp, unspentAttributePoints: unspent, restedXP: newRested };
     });
   }, []);
 
@@ -304,6 +326,49 @@ export function GameProvider({ children }: { children: ReactNode }) {
       };
     });
   }, []);
+
+  // The rest action. Consumes 1 ration (i26), restores HP/MP to max, and grants
+  // a rested-XP pool of 10% of *remaining* XP to next level (floored). Resting
+  // near a level-up gives a small pool — diminishing returns prevent the player
+  // from gaming the system by stacking rests right before leveling up. A new
+  // rest *overwrites* any existing pool rather than adding to it; otherwise a
+  // careful player could drain to 1 and rest indefinitely.
+  //
+  // Also: setting HP/MP to max here uses the same passes-time semantics as the
+  // old setHpMp(hpMax, mpMax) call did — wander exhaustion clears as a side
+  // effect of the rest. Worth knowing if that ever surprises us in playtest.
+  const rest = useCallback((): RestResult => {
+    const c = character;
+    if (!c) return { kind: 'no_rations' };
+    const rationIdx = c.inventory.indexOf('i26');
+    if (rationIdx === -1) return { kind: 'no_rations' };
+
+    const xpForNext = c.level * 100;
+    const remaining = Math.max(0, xpForNext - c.xp);
+    const newPool = Math.floor(remaining * 0.1);
+
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const idx = prev.inventory.indexOf('i26');
+      if (idx === -1) return prev;
+      const newInv = [...prev.inventory];
+      newInv.splice(idx, 1);
+      return {
+        ...prev,
+        inventory: newInv,
+        hp: prev.hpMax,
+        mp: prev.mpMax,
+        // Rest passes time: clear region exhaustion, same as the old
+        // setHpMp(full, full) path did.
+        wanderCounts: {},
+        lastWanderedRegion: null,
+        // Rested pool overwrites — stacking is the exploit we're avoiding.
+        restedXP: newPool,
+      };
+    });
+
+    return { kind: 'rested', pool: newPool };
+  }, [character]);
 
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
   const clearEncounter = useCallback(() => setPendingEncounter(null), []);
@@ -378,9 +443,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
         ? [...(prev.journalEntries ?? []), eff.journal]
         : (prev.journalEntries ?? journalEntries);
 
-      // XP and level-up logic, mirrored from gainXP. Done inline to keep this
-      // a single state transition rather than chaining setters.
-      let xp = prev.xp + (eff.xp ?? 0);
+      // XP and level-up logic, mirrored from gainXP. Drains rested pool first
+      // at 1.5x (same as gainXP) so wander XP benefits from a recent Rest.
+      const xpGain = eff.xp ?? 0;
+      const restedAvail = prev.restedXP ?? 0;
+      const restedDraw = Math.min(xpGain, restedAvail);
+      const normalDraw = xpGain - restedDraw;
+      const effectiveXP = Math.floor(restedDraw * 1.5) + normalDraw;
+      const newRested = restedAvail - restedDraw;
+
+      let xp = prev.xp + effectiveXP;
       let level = prev.level;
       let unspent = prev.unspentAttributePoints ?? 0;
       let levelsGained = 0;
@@ -416,6 +488,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         hp: hpAfterLevel, mp: mpAfterLevel, hpMax, mpMax,
         xp, level,
         unspentAttributePoints: unspent,
+        restedXP: newRested,
         gold,
         inventory,
         skillUses, unlockedSkills,
@@ -444,7 +517,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return (
     <GameContext.Provider value={{
       character, hydrated, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
-      equipItem, usePotion, addItem, gainXP, setHpMp, addGold, spendAttributePoint,
+      equipItem, usePotion, addItem, gainXP, setHpMp, addGold, spendAttributePoint, rest,
       wander, addJournalEntry,
       pendingEncounter, startEncounter, clearEncounter,
     }}>
