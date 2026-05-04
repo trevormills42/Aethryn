@@ -151,8 +151,8 @@ export const UNIVERSAL_OUTCOMES: WanderOutcome[] = [
 export const VELIRYN_OUTCOMES: WanderOutcome[] = [
   {
     id: 'v6_r1', scope: 'region', regionId: 'r6', weight: 10,
-    text: 'A field of wheat ripens around you, though no one tends it and no village is in sight. You take a handful. It tastes like bread already buttered.',
-    effects: { xp: 10, hp: 4 },
+    text: 'A field of wheat ripens around you, though no one tends it and no village is in sight. You take a handful, and bind enough to carry. It tastes like bread already buttered.',
+    effects: { xp: 10, hp: 4, itemId: 'i26' },
   },
   {
     id: 'v6_r2', scope: 'region', regionId: 'r6', weight: 9,
@@ -662,8 +662,8 @@ export const GROKHAI_OUTCOMES: WanderOutcome[] = [
   {
     id: 'v4_g4', scope: 'gated', regionId: 'r4', weight: 3,
     conditions: [{ attribute: { name: 'Charisma', min: 13 } }],
-    text: 'You hail a passing rider in the right cadence and the right humility. He shares fire and millet bread with you for an hour. He tells you the name of the storm coming next month.',
-    effects: { xp: 38, gold: 15, journal: 'The Grokhai have a name for the storm coming next month. I will not write it. Naming it brings it nearer.' },
+    text: 'You hail a passing rider in the right cadence and the right humility. He shares fire and millet bread with you for an hour. He tells you the name of the storm coming next month. He sends you off with a parcel for the road.',
+    effects: { xp: 38, gold: 15, itemId: 'i26', journal: 'The Grokhai have a name for the storm coming next month. I will not write it. Naming it brings it nearer.' },
   },
   {
     id: 'v4_g5', scope: 'gated', regionId: 'r4', weight: 3,
@@ -833,7 +833,7 @@ export const FROSTMERE_OUTCOMES: WanderOutcome[] = [
   {
     id: 'v8_r8', scope: 'region', regionId: 'r8', weight: 6,
     text: 'You shelter in an abandoned hunter\'s blind. Inside, dried meat, water, kindling — all fresh. A note: For who needs it. Take only what you will use. You take exactly that.',
-    effects: { hp: 12, xp: 18, journal: 'A Frostmere blind stocked for strangers. The note set the rule. The cold here keeps people honest about it.' },
+    effects: { hp: 12, xp: 18, itemId: 'i26', journal: 'A Frostmere blind stocked for strangers. The note set the rule. The cold here keeps people honest about it.' },
   },
   {
     id: 'v8_r9', scope: 'region', regionId: 'r8', weight: 7,
