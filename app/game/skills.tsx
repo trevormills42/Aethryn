@@ -1,13 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SKILLS, SCHOOLS } from '../lib/gameData';
 import { useGame } from '../lib/gameStore';
 import GlassCard from '../components/GlassCard';
 import RuneDivider from '../components/RuneDivider';
 
+// Skills are now use-based exclusively. There is no Practice button — that was
+// a free-XP cookie that undermined the whole philosophy. Instead, each skill
+// shows uses accumulated and the threshold to unlock the next-tier skill (its
+// "child") if any. Players see what they're working toward and how close they
+// are. Skills awaken through use in combat (and certain wander outcomes), full
+// stop.
+
 export default function SkillsScreen() {
-  const { character, trainSkill } = useGame();
+  const { character } = useGame();
   const [activeSchool, setActiveSchool] = useState(SCHOOLS[0].id);
 
   if (!character) return null;
@@ -15,15 +22,7 @@ export default function SkillsScreen() {
   const schoolSkills = SKILLS.filter(s => s.school === activeSchool);
   const school = SCHOOLS.find(s => s.id === activeSchool)!;
 
-  const onTrain = (skillId: string) => {
-    if (!character.unlockedSkills.includes(skillId)) {
-      Alert.alert('Not yet awakened', 'Practice its prerequisite first to awaken this art.');
-      return;
-    }
-    trainSkill(skillId, 5);
-  };
-
-  // Group by tier
+  // Group by tier for display
   const byTier: Record<number, typeof SKILLS> = {};
   schoolSkills.forEach(s => {
     if (!byTier[s.tier]) byTier[s.tier] = [];
@@ -71,40 +70,64 @@ export default function SkillsScreen() {
                 {skills.map(skill => {
                   const unlocked = character.unlockedSkills.includes(skill.id);
                   const uses = character.skillUses[skill.id] || 0;
+                  // The "next" skill is one that names this skill as its prereq — if
+                  // any. The progress bar runs against THAT skill's unlockUses.
                   const next = SKILLS.find(s => s.prereq === skill.id);
-                  const target = next ? next.unlockUses : 100;
-                  const pct = Math.min(1, uses / target);
+                  const target = next?.unlockUses ?? null;
+                  const pct = target ? Math.min(1, uses / target) : 1;
+                  const prereq = skill.prereq ? SKILLS.find(s => s.id === skill.prereq) : null;
 
                   return (
-                    <TouchableOpacity
-                      key={skill.id}
-                      onPress={() => onTrain(skill.id)}
-                      activeOpacity={0.85}
-                      style={{ marginBottom: 10 }}
-                    >
-                      <GlassCard style={!unlocked ? { opacity: 0.5 } : {}} glow={unlocked ? school.color : undefined}>
+                    <View key={skill.id} style={{ marginBottom: 10 }}>
+                      <GlassCard style={!unlocked ? { opacity: 0.55 } : {}} glow={unlocked ? school.color : undefined}>
                         <View style={styles.skillRow}>
                           <View style={[styles.skillIcon, { borderColor: school.color }]}>
-                            <Ionicons name={unlocked ? 'flash' : 'lock-closed'} size={18} color={unlocked ? school.color : COLORS.silver} />
+                            <Ionicons
+                              name={unlocked ? 'flash' : 'lock-closed'}
+                              size={18}
+                              color={unlocked ? school.color : COLORS.silver}
+                            />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <View style={styles.skillHeaderRow}>
                               <Text style={styles.skillName}>{skill.name}</Text>
-                              {unlocked && <Text style={[styles.skillUses, { color: school.color }]}>{uses} uses</Text>}
+                              {unlocked && (
+                                <Text style={[styles.skillUses, { color: school.color }]}>
+                                  {uses} {uses === 1 ? 'use' : 'uses'}
+                                </Text>
+                              )}
                             </View>
                             <Text style={styles.skillDesc}>{skill.desc}</Text>
-                            {unlocked && next && (
-                              <View style={styles.skillBar}>
-                                <View style={[styles.skillFill, { backgroundColor: school.color, width: `${pct * 100}%` }]} />
-                              </View>
+
+                            {/* Progress: only show when unlocked AND a next-tier exists. */}
+                            {unlocked && next && target !== null && (
+                              <>
+                                <View style={styles.skillBar}>
+                                  <View style={[styles.skillFill, { backgroundColor: school.color, width: `${pct * 100}%` }]} />
+                                </View>
+                                <Text style={styles.progressText}>
+                                  {uses >= target
+                                    ? `✦ ${next.name} awakens — use ${skill.name} once more`
+                                    : `${uses} / ${target} toward ${next.name}`}
+                                </Text>
+                              </>
                             )}
-                            {!unlocked && skill.prereq && (
-                              <Text style={styles.locked}>Requires mastery of {SKILLS.find(s => s.id === skill.prereq)?.name}</Text>
+
+                            {/* Terminal-tier skill (no next): show "mastery" line. */}
+                            {unlocked && !next && (
+                              <Text style={styles.masteryText}>✦ Mastery — no further tier in this line</Text>
+                            )}
+
+                            {/* Locked: show the path that opens it. */}
+                            {!unlocked && prereq && (
+                              <Text style={styles.locked}>
+                                Awakens when {prereq.name} reaches {skill.unlockUses} uses
+                              </Text>
                             )}
                           </View>
                         </View>
                       </GlassCard>
-                    </TouchableOpacity>
+                    </View>
                   );
                 })}
               </View>
@@ -113,7 +136,9 @@ export default function SkillsScreen() {
         })}
 
         <View style={{ paddingHorizontal: 18, marginTop: 16 }}>
-          <Text style={styles.tip}>✦ Tap an awakened skill to practice (+5 uses, +10 XP)</Text>
+          <Text style={styles.tip}>
+            ✦ Skills train through use. Cast, strike, sneak — the realm teaches what it sees you do.
+          </Text>
         </View>
       </ScrollView>
     </View>
@@ -128,12 +153,15 @@ const styles = StyleSheet.create({
   schoolName: { fontSize: 14, letterSpacing: 3, fontWeight: '700', marginBottom: 6 },
   schoolDesc: { color: COLORS.parchment, fontSize: 13, fontStyle: 'italic', lineHeight: 19 },
   skillRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  skillHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   skillIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,17,40,0.6)' },
   skillName: { color: COLORS.parchment, fontSize: 14, fontWeight: '600', flex: 1 },
   skillUses: { fontSize: 10, fontWeight: '600', letterSpacing: 1 },
   skillDesc: { color: COLORS.silver, fontSize: 12, marginTop: 3, opacity: 0.85, lineHeight: 17 },
   skillBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
   skillFill: { height: '100%' },
+  progressText: { color: COLORS.silver, fontSize: 10, fontStyle: 'italic', marginTop: 6, opacity: 0.85, letterSpacing: 0.3 },
+  masteryText: { color: COLORS.gold, fontSize: 10, fontStyle: 'italic', marginTop: 6, opacity: 0.7, letterSpacing: 0.3 },
   locked: { color: COLORS.silver, fontSize: 10, fontStyle: 'italic', marginTop: 6, opacity: 0.6 },
-  tip: { color: COLORS.gold, fontSize: 11, textAlign: 'center', opacity: 0.7, fontStyle: 'italic' },
+  tip: { color: COLORS.gold, fontSize: 11, textAlign: 'center', opacity: 0.7, fontStyle: 'italic', lineHeight: 16, paddingHorizontal: 12 },
 });
