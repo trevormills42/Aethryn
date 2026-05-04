@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ATTRIBUTES, RACES, SKILLS, QUESTS, ITEMS, Race, Quest } from './gameData';
-import { pickWanderOutcome, WanderOutcome } from './wanderData';
+import { pickWanderOutcome, WanderOutcome, getCombatCountDistribution } from './wanderData';
 
 // Bump this if you ever change the Character shape in a breaking way —
 // old saves with a different key are simply ignored (no migration logic yet).
@@ -28,6 +28,7 @@ type Character = {
   wanderCounts: Record<string, number>;
   lastWanderedRegion: string | null;
   journalEntries: string[];
+  unspentAttributePoints: number;
 };
 
 export type PendingEncounter = {
@@ -51,6 +52,7 @@ type GameContextType = {
   gainXP: (amount: number) => void;
   setHpMp: (hp: number, mp: number) => void;
   addGold: (amount: number) => void;
+  spendAttributePoint: (attrName: string) => void;
   wander: (regionId: string) => WanderResult;
   addJournalEntry: (text: string) => void;
   pendingEncounter: PendingEncounter | null;
@@ -71,6 +73,30 @@ const buildAttrs = (race: Race) => {
   ATTRIBUTES.forEach(a => { attrs[a.name] = a.base; });
   race.bonuses.forEach(b => { attrs[b.attr] = (attrs[b.attr] || 10) + b.val; });
   return attrs;
+};
+
+// Hybrid HP/MP formula. Both pools blend an attribute floor with a flat baseline
+// and a per-level growth, so even pure-mage builds stay viable while attribute
+// investment still meaningfully changes survivability/casting capacity.
+//
+//   HP_max = 50 + (STR + CON + AGI) × 1.5 + level × 5
+//   MP_max = 30 + (INT + WIL + CHA) × 1.2 + level × 3
+//
+// At creation (10/10/10, level 1): HP=100, MP=66.
+// At level 10 with 10 points into a single physical attr: HP=160. Mage at lvl 10
+// with no physical investment: HP=145 — fragile but functional.
+//
+// PER and LCK don't feed pools; they're check-modifiers (detection, crit, drops).
+const calcMaxVitals = (attrs: Record<string, number>, level: number) => {
+  const str = attrs.Strength ?? 10;
+  const con = attrs.Constitution ?? 10;
+  const agi = attrs.Agility ?? 10;
+  const int = attrs.Intellect ?? 10;
+  const wil = attrs.Willpower ?? 10;
+  const cha = attrs.Charisma ?? 10;
+  const hpMax = Math.floor(50 + (str + con + agi) * 1.5 + level * 5);
+  const mpMax = Math.floor(30 + (int + wil + cha) * 1.2 + level * 3);
+  return { hpMax, mpMax };
 };
 
 export function GameProvider({ children }: { children: ReactNode }) {
@@ -111,8 +137,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const createCharacter = useCallback((name: string, race: Race) => {
     const attrs = buildAttrs(race);
-    const hpMax = 50 + attrs.Constitution * 5;
-    const mpMax = 30 + attrs.Intellect * 4;
+    const { hpMax, mpMax } = calcMaxVitals(attrs, 1);
     setCharacter({
       name,
       race,
@@ -134,6 +159,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       wanderCounts: {},
       lastWanderedRegion: null,
       journalEntries: [],
+      unspentAttributePoints: 0,
     });
   }, []);
 
@@ -216,19 +242,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       let xp = prev.xp + amount;
       let level = prev.level;
-      let hpMax = prev.hpMax;
-      let mpMax = prev.mpMax;
-      let hp = prev.hp;
-      let mp = prev.mp;
+      let unspent = prev.unspentAttributePoints ?? 0;
+      let levelsGained = 0;
       while (xp >= level * 100) {
         xp -= level * 100;
         level += 1;
-        hpMax += 8;
-        mpMax += 5;
-        hp = hpMax;
-        mp = mpMax;
+        levelsGained += 1;
+        unspent += 1; // 1 attribute point per level
       }
-      return { ...prev, xp, level, hpMax, mpMax, hp, mp };
+      // Recompute pools from current attributes + new level. Heal to full on
+      // level-up so the new ceiling is felt.
+      const { hpMax, mpMax } = calcMaxVitals(prev.attributes, level);
+      const hp = levelsGained > 0 ? hpMax : Math.min(prev.hp, hpMax);
+      const mp = levelsGained > 0 ? mpMax : Math.min(prev.mp, mpMax);
+      return { ...prev, xp, level, hpMax, mpMax, hp, mp, unspentAttributePoints: unspent };
     });
   }, []);
 
@@ -251,6 +278,31 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const addGold = useCallback((amount: number) => {
     setCharacter(prev => prev ? { ...prev, gold: Math.max(0, prev.gold + amount) } : prev);
+  }, []);
+
+  // Spend one unspent attribute point on the named attribute. Recomputes HP/MP
+  // pools so any new max kicks in immediately. Refuses silently if no points
+  // are available or the attribute name is invalid (defensive — the UI gates this
+  // already, but we don't want a bug elsewhere to corrupt state).
+  const spendAttributePoint = useCallback((attrName: string) => {
+    setCharacter(prev => {
+      if (!prev) return prev;
+      if ((prev.unspentAttributePoints ?? 0) <= 0) return prev;
+      if (!ATTRIBUTES.find(a => a.name === attrName)) return prev;
+      const newAttrs = { ...prev.attributes, [attrName]: (prev.attributes[attrName] ?? 10) + 1 };
+      const { hpMax, mpMax } = calcMaxVitals(newAttrs, prev.level);
+      // Don't auto-heal on a stat point spend — only on level-up. But do raise
+      // the cap, and clamp current to new max if max somehow shrank (shouldn't).
+      return {
+        ...prev,
+        attributes: newAttrs,
+        hpMax,
+        mpMax,
+        hp: Math.min(prev.hp, hpMax),
+        mp: Math.min(prev.mp, mpMax),
+        unspentAttributePoints: prev.unspentAttributePoints - 1,
+      };
+    });
   }, []);
 
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
@@ -330,18 +382,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
       // a single state transition rather than chaining setters.
       let xp = prev.xp + (eff.xp ?? 0);
       let level = prev.level;
-      let hpMax = prev.hpMax;
-      let mpMax = prev.mpMax;
-      let hpAfterLevel = hp;
-      let mpAfterLevel = mp;
+      let unspent = prev.unspentAttributePoints ?? 0;
+      let levelsGained = 0;
       while (xp >= level * 100) {
         xp -= level * 100;
         level += 1;
-        hpMax += 8;
-        mpMax += 5;
-        hpAfterLevel = hpMax;
-        mpAfterLevel = mpMax;
+        levelsGained += 1;
+        unspent += 1;
       }
+      // Recompute pools from current attributes + new level. On level-up, heal
+      // to the new max so the increase is felt immediately.
+      const { hpMax, mpMax } = calcMaxVitals(prev.attributes, level);
+      const hpAfterLevel = levelsGained > 0 ? hpMax : Math.min(hp, hpMax);
+      const mpAfterLevel = levelsGained > 0 ? mpMax : Math.min(mp, mpMax);
 
       // Skill training, if any.
       let skillUses = prev.skillUses;
@@ -362,6 +415,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         ...prev,
         hp: hpAfterLevel, mp: mpAfterLevel, hpMax, mpMax,
         xp, level,
+        unspentAttributePoints: unspent,
         gold,
         inventory,
         skillUses, unlockedSkills,
@@ -373,9 +427,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     // Combat is set as a side effect (not part of character state).
     if (eff.combat) {
-      // Roll enemy count: 1-3 weighted toward 1. ~60% one, ~30% two, ~10% three.
+      // Three-layer fallback: outcome's countDistribution > region default > universal.
+      const dist = getCombatCountDistribution(outcome, regionId);
       const r = Math.random();
-      const count = r < 0.6 ? 1 : r < 0.9 ? 2 : 3;
+      // dist is [p(1), p(2), p(3)]. Cumulative thresholds.
+      const count = r < dist[0] ? 1 : r < dist[0] + dist[1] ? 2 : 3;
       const enemyId = eff.combat.enemyIds[0] ?? 'bandit';
       const enemyIds = Array.from({ length: count }, () => enemyId);
       setPendingEncounter({ regionId, enemyIds, canFlee: eff.combat.canFlee });
@@ -388,7 +444,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return (
     <GameContext.Provider value={{
       character, hydrated, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
-      equipItem, usePotion, addItem, gainXP, setHpMp, addGold,
+      equipItem, usePotion, addItem, gainXP, setHpMp, addGold, spendAttributePoint,
       wander, addJournalEntry,
       pendingEncounter, startEncounter, clearEncounter,
     }}>
