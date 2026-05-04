@@ -178,10 +178,10 @@ export default function WorldScreen() {
 
               <TouchableOpacity onPress={() => onWander(region.id)} style={[styles.encounterBtn, { backgroundColor: 'rgba(45,27,78,0.6)', borderWidth: 1, borderColor: COLORS.gold }]}>
                 <Ionicons name="footsteps" size={18} color={COLORS.gold} />
-                <Text style={[styles.encounterText, { color: COLORS.gold }]}>Wander the region (−2 HP)</Text>
+                <Text style={[styles.encounterText, { color: COLORS.gold }]}>Wander the region</Text>
               </TouchableOpacity>
 
-              <Text style={styles.modalNote}>Hunting yields combat. Wandering yields lore — and sometimes worse. Regions tire of you; rest or move on to refresh them.</Text>
+              <Text style={styles.modalNote}>Hunting yields combat. Wandering yields lore — and sometimes worse. Costs a small toll of vitality. Regions tire of you; rest or move on to refresh them.</Text>
             </View>
           </View>
         )}
