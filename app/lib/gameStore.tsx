@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, Rea
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ATTRIBUTES, RACES, SKILLS, QUESTS, ITEMS, Race, Quest } from './gameData';
 import { pickWanderOutcome, WanderOutcome, getCombatCountDistribution } from './wanderData';
+import { rollRotation, getItemPrice, applyCharismaDiscount, getSellPrice } from './shopData';
 
 // Bump this if you ever change the Character shape in a breaking way —
 // old saves with a different key are simply ignored (no migration logic yet).
@@ -34,6 +35,10 @@ type Character = {
   // size is calculated from "remaining XP to next level" so resting near a
   // level-up gives diminishing returns and prevents stacking exploits.
   restedXP: number;
+  // Hesta's current rotation slots. Rerolled on Rest (the same time-pass trigger
+  // that clears region exhaustion). Stays stable between rests so a player who
+  // sees a rare item knows it'll still be there when they come back from a fight.
+  shopRotation: string[];
 };
 
 export type PendingEncounter = {
@@ -59,6 +64,8 @@ type GameContextType = {
   addGold: (amount: number) => void;
   spendAttributePoint: (attrName: string) => void;
   rest: () => RestResult;
+  buyItem: (itemId: string) => BuyResult;
+  sellItem: (itemId: string) => SellResult;
   wander: (regionId: string) => WanderResult;
   addJournalEntry: (text: string) => void;
   pendingEncounter: PendingEncounter | null;
@@ -77,6 +84,18 @@ export type WanderResult =
 export type RestResult =
   | { kind: 'no_rations' }
   | { kind: 'rested'; pool: number };
+
+// Buy returns either success with the gold spent, or a soft-failure code so
+// the UI can show appropriate feedback ("not enough gold", "no longer in stock").
+export type BuyResult =
+  | { kind: 'bought'; goldSpent: number }
+  | { kind: 'cant_afford' }
+  | { kind: 'out_of_stock' };
+
+// Sell always succeeds if you own the item — the merchant will buy anything.
+export type SellResult =
+  | { kind: 'sold'; goldGained: number }
+  | { kind: 'not_owned' };
 
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -174,6 +193,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       journalEntries: [],
       unspentAttributePoints: 0,
       restedXP: 0,
+      shopRotation: rollRotation(),
     });
   }, []);
 
@@ -327,8 +347,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // The rest action. Consumes 1 ration (i26), restores HP/MP to max, and grants
-  // a rested-XP pool of 10% of *remaining* XP to next level (floored). Resting
+  // The rest action. Consumes 1 ration (i26), restores HP/MP to max, and grants  // a rested-XP pool of 10% of *remaining* XP to next level (floored). Resting
   // near a level-up gives a small pool — diminishing returns prevent the player
   // from gaming the system by stacking rests right before leveling up. A new
   // rest *overwrites* any existing pool rather than adding to it; otherwise a
@@ -364,10 +383,84 @@ export function GameProvider({ children }: { children: ReactNode }) {
         lastWanderedRegion: null,
         // Rested pool overwrites — stacking is the exploit we're avoiding.
         restedXP: newPool,
+        // Reroll Hesta's rare slots. Most rests yield none; sometimes one or two.
+        shopRotation: rollRotation(),
       };
     });
 
     return { kind: 'rested', pool: newPool };
+  }, [character]);
+
+  // Purchase from Hesta. Validates: item is currently in stock (staple OR
+  // current rotation), player can afford the charisma-discounted price. On
+  // success: deducts gold, grants the item, removes it from rotation if it was
+  // a rotation slot (so each rotation roll yields a finite "this rest's items").
+  const buyItem = useCallback((itemId: string): BuyResult => {
+    const c = character;
+    if (!c) return { kind: 'out_of_stock' };
+
+    const item = ITEMS.find(i => i.id === itemId);
+    if (!item) return { kind: 'out_of_stock' };
+
+    // Is this item currently for sale? Either a staple (always available) or
+    // present in today's rotation.
+    const isStaple = item.rarity === 'common' || item.rarity === 'uncommon';
+    const inRotation = (c.shopRotation ?? []).includes(itemId);
+    if (!isStaple && !inRotation) return { kind: 'out_of_stock' };
+
+    const cha = c.attributes.Charisma ?? 10;
+    const finalPrice = applyCharismaDiscount(getItemPrice(item), cha);
+    if (c.gold < finalPrice) return { kind: 'cant_afford' };
+
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const newRotation = inRotation
+        ? prev.shopRotation.filter(id => id !== itemId)
+        : prev.shopRotation;
+      return {
+        ...prev,
+        gold: prev.gold - finalPrice,
+        inventory: [...prev.inventory, itemId],
+        shopRotation: newRotation,
+      };
+    });
+
+    return { kind: 'bought', goldSpent: finalPrice };
+  }, [character]);
+
+  // Sell to Hesta at 40% of buy price. No charisma bonus on sell. Equipped items
+  // are silently un-equipped if sold (defensive — UI should prevent this but
+  // we don't want a phantom equipped reference).
+  const sellItem = useCallback((itemId: string): SellResult => {
+    const c = character;
+    if (!c) return { kind: 'not_owned' };
+
+    const idx = c.inventory.indexOf(itemId);
+    if (idx === -1) return { kind: 'not_owned' };
+
+    const item = ITEMS.find(i => i.id === itemId);
+    if (!item) return { kind: 'not_owned' };
+
+    const goldGained = getSellPrice(item);
+
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const newInv = [...prev.inventory];
+      newInv.splice(newInv.indexOf(itemId), 1);
+      // Un-equip if needed.
+      const equipped = { ...prev.equipped };
+      if (equipped.weapon === itemId) equipped.weapon = undefined;
+      if (equipped.armor === itemId) equipped.armor = undefined;
+      if (equipped.artifact === itemId) equipped.artifact = undefined;
+      return {
+        ...prev,
+        inventory: newInv,
+        equipped,
+        gold: prev.gold + goldGained,
+      };
+    });
+
+    return { kind: 'sold', goldGained };
   }, [character]);
 
   const startEncounter = useCallback((encounter: PendingEncounter) => setPendingEncounter(encounter), []);
@@ -517,7 +610,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return (
     <GameContext.Provider value={{
       character, hydrated, createCharacter, resetCharacter, trainSkill, toggleQuest, makeChoice, visitRegion,
-      equipItem, usePotion, addItem, gainXP, setHpMp, addGold, spendAttributePoint, rest,
+      equipItem, usePotion, addItem, gainXP, setHpMp, addGold, spendAttributePoint, rest, buyItem, sellItem,
       wander, addJournalEntry,
       pendingEncounter, startEncounter, clearEncounter,
     }}>
