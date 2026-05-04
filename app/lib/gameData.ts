@@ -275,6 +275,7 @@ export const ITEMS: Item[] = [
   { id: 'i23', name: 'Veilthread', type: 'material', rarity: 'epic', desc: 'Used in legendary enchanting.', lore: 'Cut from the seam between worlds.' },
   { id: 'i24', name: 'Wolfsbane Charm', type: 'artifact', rarity: 'uncommon', desc: 'Lycanthropes cannot smell you.', lore: 'A child\'s whittling, somehow potent.', stat: 'Stealth+' },
   { id: 'i25', name: 'Bellringer\'s Token', type: 'artifact', rarity: 'rare', desc: 'Once per day, undo your last action.', lore: 'The bell remembers. The token forgets so you may.', stat: 'Rewind' },
+  { id: 'i26', name: 'Trail Rations', type: 'material', rarity: 'common', desc: 'Consumed when resting. Hard bread, dried meat, a little salt.', lore: 'Enough for a night\'s camp. The realm asks something for the sleep it gives.' },
 ];
 
 export const REGIONS = [
