@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, ScrollView, Image, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, Image, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { COLORS, ATTRIBUTES, ACHIEVEMENTS } from '../lib/gameData';
@@ -9,16 +9,29 @@ import RuneDivider from '../components/RuneDivider';
 import StatRing from '../components/StatRing';
 
 export default function CharacterSheet() {
-  const { character, resetCharacter, gainXP, setHpMp, spendAttributePoint } = useGame();
+  const { character, resetCharacter, spendAttributePoint, rest } = useGame();
+  // Modal state for rest feedback. Shows the lyrical confirmation on success
+  // and a "no rations" message when the player tries to rest empty-handed.
+  const [restModal, setRestModal] = useState<
+    | null
+    | { kind: 'no_rations' }
+    | { kind: 'rested'; pool: number }
+  >(null);
+
   if (!character) return null;
 
   const xpForNext = character.level * 100;
   const xpPct = character.xp / xpForNext;
   const unspent = character.unspentAttributePoints ?? 0;
+  const restedXP = character.restedXP ?? 0;
+  // Rested pool is rendered as a second segment on the XP bar, starting from
+  // current XP and extending by restedXP worth of width (capped at the bar).
+  const restedPct = Math.min(1 - xpPct, restedXP / xpForNext);
+  const rationCount = character.inventory.filter(id => id === 'i26').length;
 
   const onRest = () => {
-    setHpMp(character.hpMax, character.mpMax);
-    gainXP(15);
+    const result = rest();
+    setRestModal(result);
   };
 
   const onLeave = () => {
@@ -45,8 +58,15 @@ export default function CharacterSheet() {
 
           <View style={styles.xpBar}>
             <View style={[styles.xpFill, { width: `${xpPct * 100}%` }]} />
+            {/* Rested pool overlay — sits next to current XP fill, in arcane purple. */}
+            {restedXP > 0 && (
+              <View style={[styles.xpRestedFill, { left: `${xpPct * 100}%`, width: `${restedPct * 100}%` }]} />
+            )}
             <Text style={styles.xpText}>{character.xp} / {xpForNext} XP</Text>
           </View>
+          {restedXP > 0 && (
+            <Text style={styles.restedLabel}>✦ Rested: {restedXP} XP at 1.5×</Text>
+          )}
         </View>
 
         {/* VITALS */}
@@ -156,7 +176,7 @@ export default function CharacterSheet() {
         <View style={{ paddingHorizontal: 18, gap: 10 }}>
           <TouchableOpacity onPress={onRest} style={styles.actionBtn}>
             <Ionicons name="moon" size={16} color={COLORS.gold} />
-            <Text style={styles.actionText}>Rest by the fire</Text>
+            <Text style={styles.actionText}>Rest by the fire ({rationCount} rations)</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={onLeave} style={[styles.actionBtn, { borderColor: 'rgba(220,38,38,0.4)' }]}>
             <Ionicons name="exit-outline" size={16} color={COLORS.blood} />
@@ -164,6 +184,41 @@ export default function CharacterSheet() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Rest outcome modal: works on web (Alert.alert callbacks don't fire there). */}
+      <Modal visible={!!restModal} transparent animationType="fade" onRequestClose={() => setRestModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            {restModal?.kind === 'no_rations' ? (
+              <>
+                <Text style={styles.modalTitle}>No Provisions</Text>
+                <Text style={styles.modalDesc}>
+                  You have no rations to share with the fire. Rest requires food and a little salt — you cannot earn it from nothing.
+                </Text>
+              </>
+            ) : restModal?.kind === 'rested' ? (
+              <>
+                <Text style={[styles.modalTitle, { color: COLORS.gold }]}>The Fire Settles</Text>
+                <Text style={styles.modalDesc}>
+                  You eat. You sleep. You wake with the realm a little clearer in your mind.
+                </Text>
+                {restModal.pool > 0 ? (
+                  <Text style={styles.modalRested}>
+                    ✦ Rested: {restModal.pool} XP at 1.5× until earned
+                  </Text>
+                ) : (
+                  <Text style={styles.modalRested}>
+                    ✦ You are nearly to the next mark. The fire offers little to learn.
+                  </Text>
+                )}
+              </>
+            ) : null}
+            <TouchableOpacity onPress={() => setRestModal(null)} style={[styles.actionBtn, { marginTop: 16 }]}>
+              <Text style={styles.actionText}>Go on</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -179,7 +234,11 @@ const styles = StyleSheet.create({
   race: { color: COLORS.gold, fontSize: 11, letterSpacing: 3, marginBottom: 16 },
   xpBar: { width: '100%', height: 8, borderRadius: 4, backgroundColor: 'rgba(45,27,78,0.6)', borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)', overflow: 'hidden', marginTop: 6 },
   xpFill: { height: '100%', backgroundColor: COLORS.gold },
+  // Rested overlay sits adjacent to the gold XP fill, in arcane purple, so the
+  // player can read at a glance how much "bonus" runway they've got.
+  xpRestedFill: { position: 'absolute', height: '100%', backgroundColor: COLORS.arcane, opacity: 0.65, top: 0 },
   xpText: { position: 'absolute', alignSelf: 'center', top: -18, color: COLORS.silver, fontSize: 10, letterSpacing: 1.5 },
+  restedLabel: { color: COLORS.arcane, fontSize: 10, letterSpacing: 1, marginTop: 8, opacity: 0.85, fontStyle: 'italic' },
   vitalsRow: { flexDirection: 'row', gap: 8 },
   vitalCard: { flex: 1 },
   vitalHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
@@ -203,4 +262,9 @@ const styles = StyleSheet.create({
   achDesc: { color: COLORS.silver, fontSize: 11, opacity: 0.7 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)', backgroundColor: 'rgba(45,27,78,0.3)' },
   actionText: { color: COLORS.gold, fontSize: 13, letterSpacing: 1.5, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(5,8,23,0.85)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  modalCard: { width: '100%', maxWidth: 400, backgroundColor: COLORS.bgDeep, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)', padding: 22 },
+  modalTitle: { color: COLORS.parchment, fontSize: 18, fontWeight: '300', letterSpacing: 3, marginBottom: 12, textAlign: 'center' },
+  modalDesc: { color: COLORS.parchment, fontSize: 13, lineHeight: 21, fontStyle: 'italic', textAlign: 'center' },
+  modalRested: { color: COLORS.arcane, fontSize: 11, letterSpacing: 1, marginTop: 14, textAlign: 'center', fontStyle: 'italic' },
 });
