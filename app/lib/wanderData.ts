@@ -205,7 +205,7 @@ export const VELIRYN_OUTCOMES: WanderOutcome[] = [
     effects: { itemId: 'i11', gold: -6, xp: 8 },
   },
   {
-    id: 'v6_r12', scope: 'region', regionId: 'r6', weight: 5,
+    id: 'v6_r12', scope: 'region', regionId: 'r6', weight: 3,
     text: 'A woman waits at a crossroads. She has the look of waiting a long time. She does not speak when you greet her, and she is gone when you look back.',
     effects: { xp: 24, hp: -4, journal: 'The waiting woman at the Plains crossroads. She does not speak. She does not stay.' },
   },
@@ -420,7 +420,7 @@ export const SYLVARIN_OUTCOMES: WanderOutcome[] = [
     effects: { xp: 32, mp: 10, journal: 'A stag in Sylvarin bowed to me. I do not know what it took me for.' },
   },
   {
-    id: 'v2_r12', scope: 'region', regionId: 'r2', weight: 5,
+    id: 'v2_r12', scope: 'region', regionId: 'r2', weight: 7,
     text: 'A Sylvarin warden steps from between two trees. Whatever you have done lately, it appears to have been the wrong thing.',
     effects: { combat: { enemyIds: ['warden'], canFlee: true, countDistribution: [0.7, 0.3, 0] } },
   },
@@ -527,7 +527,7 @@ export const KHARDUUN_OUTCOMES: WanderOutcome[] = [
     effects: { gold: 65, xp: 22 },
   },
   {
-    id: 'v3_r12', scope: 'region', regionId: 'r3', weight: 6,
+    id: 'v3_r12', scope: 'region', regionId: 'r3', weight: 11,
     text: 'A stone-shape in the dark resolves itself into more than stone. It rises slowly, the way old things do.',
     effects: { combat: { enemyIds: ['golem'], canFlee: true, countDistribution: [0.6, 0.3, 0.1] } },
   },
@@ -635,7 +635,7 @@ export const GROKHAI_OUTCOMES: WanderOutcome[] = [
     effects: { itemId: 'i8', xp: 32, journal: 'A Grokhai totem-mantle in a cairn. The clan had moved on. The mantle had not.' },
   },
   {
-    id: 'v4_r12', scope: 'region', regionId: 'r4', weight: 7,
+    id: 'v4_r12', scope: 'region', regionId: 'r4', weight: 11,
     text: 'Stormblooded raiders crest a rise on a fast-moving line. They have already chosen their angle. There is no negotiation in their riding.',
     effects: { combat: { enemyIds: ['stormblood'], canFlee: true, countDistribution: [0.4, 0.4, 0.2] } },
   },
@@ -851,7 +851,7 @@ export const FROSTMERE_OUTCOMES: WanderOutcome[] = [
     effects: { itemId: 'i24', xp: 28, journal: 'A wolfsbane charm in Frostmere snow. The whittling was a child\'s. The protection is not.' },
   },
   {
-    id: 'v8_r12', scope: 'region', regionId: 'r8', weight: 7,
+    id: 'v8_r12', scope: 'region', regionId: 'r8', weight: 12,
     text: 'They come from the trees together, two or three or four, depending on what the snow chooses to let you see. They are not in any hurry.',
     effects: { combat: { enemyIds: ['wolf'], canFlee: true, countDistribution: [0.25, 0.45, 0.3] } },
   },
@@ -959,7 +959,7 @@ export const SUNDERED_OUTCOMES: WanderOutcome[] = [
     effects: { itemId: 'i23', mp: -8, xp: 38, journal: 'A length of veilthread at the Tower. From the right side. The wrong side noticed me take it.' },
   },
   {
-    id: 'v7_r12', scope: 'region', regionId: 'r7', weight: 7,
+    id: 'v7_r12', scope: 'region', regionId: 'r7', weight: 17,
     text: 'A lich rises from a sigil-cracked plinth. It does not introduce itself. It does not need to. The Voice has decided you are interesting after all.',
     effects: { combat: { enemyIds: ['lich'], canFlee: true, countDistribution: [0.7, 0.25, 0.05] } },
   },
@@ -1068,7 +1068,7 @@ export const VEIL_OUTCOMES: WanderOutcome[] = [
     effects: { itemId: 'i20', mp: -15, xp: 90, journal: 'A voice-touched locket appeared in my pocket in the Veil. I do not own it. It owns being-with-me. The whisper has already begun.' },
   },
   {
-    id: 'v9_r12', scope: 'region', regionId: 'r9', weight: 6,
+    id: 'v9_r12', scope: 'region', regionId: 'r9', weight: 20,
     text: 'A veil-touched thing notices you across a field of soft white static. It does not approach. It begins to be where you are, by inches, without crossing the distance.',
     effects: { combat: { enemyIds: ['veil_touched'], canFlee: true, countDistribution: [0.3, 0.4, 0.3] } },
   },
