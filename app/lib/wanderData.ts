@@ -97,7 +97,7 @@ export const UNIVERSAL_OUTCOMES: WanderOutcome[] = [
     effects: { xp: 16, hp: -2, journal: 'Footsteps in pace with mine. They stopped when I did.' },
   },
   {
-    id: 'u12', scope: 'universal', weight: 3,
+    id: 'u12', scope: 'universal', weight: 5,
     // Combat — universal bandit ambush. Enemy count picked at runtime by store.
     text: 'Three figures step from the brush, knives already drawn. There is no preamble.',
     effects: { combat: { enemyIds: ['bandit'], canFlee: true } },
