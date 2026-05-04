@@ -268,9 +268,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const c = character;
     if (!c) return { kind: 'outcome', outcome: { id: 'noop', scope: 'exhausted', weight: 1, text: '', effects: {} }, combatTriggered: false };
 
-    // 2 HP toll — but if you're already too weary, refuse the wander entirely.
-    // We require HP > 2 (not >= 2) so the toll never drops you below 1.
-    if (c.hp <= 2) return { kind: 'too_weary' };
+    // 2% of max HP toll, rounded up, with a minimum of 2 so an exploit-level
+    // tiny wanderer can't reduce the cost below the original baseline.
+    // (At hpMax 100 → 2; hpMax 150 → 3; hpMax 200 → 4. Scales with the player.)
+    const toll = Math.max(2, Math.ceil(c.hpMax * 0.02));
+
+    // If the toll would drop us to 0 or below, refuse the wander.
+    // We require strictly more HP than toll, so a successful wander always leaves at least 1 HP.
+    if (c.hp <= toll) return { kind: 'too_weary' };
 
     // Defensive defaults for old saves that pre-date these fields.
     const wanderCounts = c.wanderCounts ?? {};
@@ -295,8 +300,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       const counts = passedTime ? {} : { ...(prev.wanderCounts ?? {}) };
       counts[regionId] = (counts[regionId] ?? 0) + 1;
 
-      // Vitals: 2 HP toll first, then any outcome HP delta. Clamp at end.
-      let hp = prev.hp - 2 + (eff.hp ?? 0);
+      // Vitals: percentage toll first, then any outcome HP delta. Clamp at end.
+      let hp = prev.hp - toll + (eff.hp ?? 0);
       hp = Math.max(0, Math.min(prev.hpMax, hp));
 
       let mp = prev.mp + (eff.mp ?? 0);
